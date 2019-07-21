@@ -66,6 +66,7 @@ async function prepareCategoryLists() {
 }
 
 const itemNames = {}
+const spellNames = {}
 /**
  * Maps auras to item ids based on data from wowdb
  */
@@ -107,6 +108,74 @@ async function prepareItemAndSpellData() {
 	} catch (error) {
 		console.error(error);
 	}
+}
+
+async function updateLibItemBuffs() {
+	// merge categories' outputs
+	const db = await prepareDatabase();
+	// write to file
+	const cutMarker = '--== CUT HERE ==--';
+	const code = [
+		cutMarker,
+		`version = ${getVersionString()}`,
+	];
+
+	['trinkets', 'consumables'].forEach(category => {
+		const data = db[category];
+
+		code.push(`-- ${category[0].toUpperCase() + category.slice(1)}`);
+		for (let [spellID, items] of Object.entries(data)) {
+			items = [...items];
+			const spellName = spellNames[spellID];
+			const spell = (`      ${spellID}`).slice(-6);
+			if (items.length === 1) {
+				let itemID = items[0];
+				const item = (`      ${itemID}`).slice(-6);
+				const itemName = itemNames[itemID];
+				const name = spellName !== itemName ? `${spellName} (${itemName})` : spellName;
+
+				code.push(`${category}[${spell}] = ${item} -- ${name}`);
+			} else {
+				items.sort((a, b) => a - b);
+
+				code.push(`${category}[${spell}] = { -- ${spellName}`);
+				items.forEach(itemID => {
+					const item = (`      ${itemID}`).slice(-6);
+					code.push(`\t${item}, -- ${itemNames[itemID]}`);
+				})
+				code.push('}');
+			}
+		}
+	});
+
+	code.push('');
+	code.push(`LibStub('LibItemBuffs-1.0'):__UpgradeDatabase(version, trinkets, consumables, enchantments)\n`);
+
+	const file = 'LibItemBuffs-Database-1.0.lua';
+	let old = await fs.readFile(file, 'utf-8');
+	old = old.substring(0, old.indexOf(cutMarker) - 1);
+	await fs.writeFile(file, old.concat(`\n`, code.join(`\n`)));
+}
+
+async function prepareDatabase() {
+	const db = {}
+	for (const category of Object.keys(categories)) {
+		try {
+			const cat = category === 'trinkets' ? 'trinkets' : 'consumables';
+			db[cat] = db[cat] || {}
+			const data = await fs.readJson(`./cache/${category}/output.json`);
+			for (const [itemID, auras] of Object.entries(data)) {
+				for (const [spellID, name] of Object.entries(auras)) {
+					spellNames[spellID] = name;
+					db[cat][spellID] = (db[cat][spellID] || new Set()).add(itemID);
+				}
+			}
+		} catch (error) {
+			console.error(error);
+		}
+	}
+
+	return db;
 }
 
 /**
@@ -169,6 +238,11 @@ function getData(id, store) {
 			return data;
 		}
 	}
+}
+
+function getVersionString() {
+	let now = new Date().toISOString();
+	return now.substring(0, 19).replace(/[T:-]/g, '');
 }
 
 /**
@@ -286,4 +360,5 @@ async function downloadJson(type, id) {
 	await prepareCategories();
 	await prepareCategoryLists();
 	await prepareItemAndSpellData();
+	await updateLibItemBuffs();
 })();
