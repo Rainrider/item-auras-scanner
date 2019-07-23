@@ -9,6 +9,8 @@ const categories = {
 	elixirs: '/elixirs',
 	flasks: '/flasks',
 	food_and_drinks: '/food-and-drinks',
+	miscellaneous_items: '/miscellaneous-items?filter=161:62;1:1;0:2', // available to players and with CD > 2 secs
+	other_consumables: '/other-consumables',
 	potions: '/potions',
 	trinkets: '/trinkets',
 }
