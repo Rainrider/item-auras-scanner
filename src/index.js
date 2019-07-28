@@ -1,5 +1,6 @@
 const axios = require('axios');
 const fs = require('fs-extra');
+const { MongoClient } = require('mongodb');
 
 /**
  * `name - path` pairs
@@ -286,7 +287,8 @@ async function updateItemsCache(category) {
 	for (const itemID of info) {
 		if (!cache.has(itemID)) {
 			try {
-				let item = await downloadJson('item', itemID);
+				const item = await downloadJson('item', itemID);
+				item.Icon = item.Icon.replace(/\.\w+$/, '');
 				items.push(item);
 				cache.add(itemID);
 			} catch (error) {
@@ -336,6 +338,7 @@ async function cacheRelatedSpells(spellID, spells, cache) {
 
 	try {
 		const spell = await downloadJson('spell', spellID);
+		spell.Icon = spell.Icon.replace(/\.\w+$/, '');
 		spells.push(spell);
 		cache.add(spellID);
 
@@ -358,9 +361,37 @@ async function downloadJson(type, id) {
 	return JSON.parse(data);
 }
 
+async function writeToMongoDB() {
+	let client;
+	try {
+		client = await MongoClient.connect('mongodb://localhost:27017', { useNewUrlParser: true });
+
+		for (const category of Object.keys(categories)) {
+			for (const type of ['items', 'spells']) {
+				const db = client.db(type);
+				const collection = db.collection(category);
+				const data = await fs.readJSON(`./cache/${category}/${type}.json`);
+
+				const bulkOp = collection.initializeUnorderedBulkOp();
+				data.forEach(datum => {
+					datum._id = datum.ID;
+					datum.Icon = datum.Icon.replace(/\.\w+$/, '');
+					bulkOp.find({ _id: datum._id }).upsert().replaceOne(datum);
+				});
+				bulkOp.execute();
+			}
+		}
+	} catch (error) {
+		console.error(error);
+	} finally {
+		client.close();
+	}
+}
+
 (async function getMeDataz() {
 	await prepareCategories();
 	await prepareCategoryLists();
 	await prepareItemAndSpellData();
 	await updateLibItemBuffs();
+	await writeToMongoDB();
 })();
